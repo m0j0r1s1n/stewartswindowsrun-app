@@ -17,7 +17,8 @@
         <span class="logo-icon">🪟</span>
         <span class="logo-text">Bert & Ernie Task Manager</span>
       </div>
-      <nav class="tab-nav">
+      <button class="hamburger-btn" id="hamburger-btn" onclick="toggleHamburgerMenu()" title="Menu">☰</button>
+      <nav class="tab-nav" id="tab-nav">
         <button class="tab-btn active" data-tab="today">Today</button>
         <button class="tab-btn" data-tab="schedule">Schedule</button>
         <button class="tab-btn" data-tab="customers">Customers</button>
@@ -255,5 +256,25 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
+  <script>
+    function toggleHamburgerMenu() {
+      var nav = document.getElementById('tab-nav');
+      nav.classList.toggle('open');
+      var btn = document.getElementById('hamburger-btn');
+      btn.classList.toggle('open');
+    }
+    // Optional: close menu when clicking outside on mobile
+    document.addEventListener('click', function(e) {
+      var nav = document.getElementById('tab-nav');
+      var btn = document.getElementById('hamburger-btn');
+      if (!nav || !btn) return;
+      if (window.innerWidth > 600) return;
+      if (!nav.classList.contains('open')) return;
+      if (!nav.contains(e.target) && e.target !== btn) {
+        nav.classList.remove('open');
+        btn.classList.remove('open');
+      }
+    });
+  </script>
 </body>
 </html>
