@@ -27,8 +27,25 @@ create table if not exists cr_jobs (
   created_at timestamptz default now()
 );
 
--- Enable RLS (optional but recommended)
+create table if not exists cr_expenses (
+  id uuid primary key default gen_random_uuid(),
+  expense_date date not null default current_date,
+  amount numeric(10,2) not null default 0,
+  category text default 'misc',
+  description text,
+  created_at timestamptz default now()
+);
+
+-- Enable RLS
 alter table cr_customers enable row level security;
 alter table cr_jobs enable row level security;
+alter table cr_expenses enable row level security;
+
+-- Drop policies if they already exist, then recreate
+drop policy if exists "allow all" on cr_customers;
+drop policy if exists "allow all" on cr_jobs;
+drop policy if exists "allow all" on cr_expenses;
+
 create policy "allow all" on cr_customers for all using (true) with check (true);
 create policy "allow all" on cr_jobs for all using (true) with check (true);
+create policy "allow all" on cr_expenses for all using (true) with check (true);

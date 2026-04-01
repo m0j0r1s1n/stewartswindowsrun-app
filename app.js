@@ -8,6 +8,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let sbClient       = null;
 let customers      = [];
 let jobs           = [];
+let expenses       = [];
 let scheduleView   = 'week';
 let scheduleOffset = 0;
 let routeMode      = false;
@@ -53,6 +54,9 @@ function showApp() {
   setTodayLabel();
   setupOverlayClose();
   setDefaultPayDates();
+  setDefaultExpenseDate();
+  loadFuelSettings();
+  loadOrsKey();
   bootstrap();
 }
 
@@ -94,13 +98,20 @@ async function doLogout() {
 }
 
 async function bootstrap() {
+  // Re-detect expense table on every fresh app load
+  expenseStoreResolved = false;
+  expenseStoreAvailable = false;
   await ensureTables();
   await loadCustomers();
   await loadJobs();
+  await loadExpenses();
   renderToday();
   renderSchedule();
   renderCustomers();
   renderPayments();
+  renderExpenses();
+  renderProfit();
+  initMap();
   startAutoRefresh();
 }
 
@@ -121,6 +132,7 @@ function startAutoRefresh() {
 async function silentRefresh() {
   await loadCustomers();
   await loadJobs();
+  await loadExpenses();
   renderAll();
 }
 
@@ -155,6 +167,7 @@ async function manualSync() {
   try {
     await loadCustomers();
     await loadJobs();
+    await loadExpenses();
     renderAll();
     showToast('Synced ✓', 'success');
   } catch (err) {
@@ -352,6 +365,8 @@ function renderAll() {
   renderSchedule();
   renderCustomers();
   renderPayments();
+  renderExpenses();
+  renderProfit();
 }
 
 // ─────────────────────────────────────────
@@ -585,6 +600,11 @@ function setDefaultPayDates() {
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
   document.getElementById('pay-from').value = isoDate(first);
   document.getElementById('pay-to').value   = isoDate(now);
+}
+
+function setDefaultExpenseDate() {
+  const dateInput = document.getElementById('exp-date');
+  if (dateInput && !dateInput.value) dateInput.value = isoDate(new Date());
 }
 
 function setPayView(view, el) {
@@ -1002,3 +1022,437 @@ Object.assign(window, {
   filterCustomers, setPayView, clearPayDates,
   toggleTheme, manualSync,
 });
+// ================= CONFIG =================
+const MAPBOX_TOKEN = 'PASTE_YOUR_TOKEN_HERE';
+let expenseTable = 'cr_expenses';
+let expenseDateColumn = 'expense_date';
+let expenseStoreResolved = false;
+let expenseStoreAvailable = false;
+
+async function resolveExpenseStore() {
+  if (expenseStoreResolved) return;
+
+  // Only fall back to legacy 'expenses' if cr_expenses truly doesn't exist (42P01)
+  const checkNew = await sbClient.from('cr_expenses').select('id').limit(1);
+  if (!checkNew.error || checkNew.error.code !== '42P01') {
+    expenseTable = 'cr_expenses';
+    expenseDateColumn = 'expense_date';
+    expenseStoreAvailable = !checkNew.error;
+    expenseStoreResolved = true;
+    if (checkNew.error) console.error('cr_expenses error:', checkNew.error.message);
+    return;
+  }
+
+  // cr_expenses table does not exist — try legacy
+  const checkLegacy = await sbClient.from('expenses').select('id').limit(1);
+  if (!checkLegacy.error || checkLegacy.error.code !== '42P01') {
+    expenseTable = 'expenses';
+    expenseDateColumn = 'date';
+    expenseStoreAvailable = !checkLegacy.error;
+    expenseStoreResolved = true;
+    return;
+  }
+
+  expenseStoreResolved = true;
+  expenseStoreAvailable = false;
+  console.error('No expenses table found. Expected cr_expenses or expenses.');
+  showToast('Expenses setup missing. Run supabase_setup.sql', 'error');
+}
+
+// ================= LOAD EXPENSES =================
+async function loadExpenses() {
+  await resolveExpenseStore();
+  if (!expenseStoreAvailable) {
+    expenses = [];
+    return;
+  }
+
+  const { data, error } = await sbClient
+    .from(expenseTable)
+    .select('*')
+    .order(expenseDateColumn, { ascending: false });
+  if (error) {
+    console.error('Expense load failed:', error);
+    showToast('Could not load expenses: ' + (error.message || 'unknown error'), 'error');
+    expenses = [];
+    return;
+  }
+  expenses = data || [];
+}
+
+// ================= ADD EXPENSE =================
+document.addEventListener('submit', async (e) => {
+  if (e.target.id === 'expense-form') {
+    e.preventDefault();
+
+    const expenseDate = document.getElementById('exp-date').value;
+    const amount = parseFloat(document.getElementById('exp-amount').value);
+    const category = document.getElementById('exp-category').value;
+    const description = document.getElementById('exp-desc').value.trim();
+
+    if (!expenseDate || !Number.isFinite(amount) || amount < 0) {
+      showToast('Please add a valid date and amount', 'error');
+      return;
+    }
+
+    await resolveExpenseStore();
+    if (!expenseStoreAvailable) {
+      showToast('Expenses table missing. Run supabase_setup.sql', 'error');
+      return;
+    }
+
+    const { error } = await sbClient.from(expenseTable).insert([{
+      [expenseDateColumn]: expenseDate,
+      amount,
+      category,
+      description: description || null,
+    }]);
+
+    if (error) {
+      showToast('Failed to add expense: ' + (error.message || 'unknown error'), 'error');
+      console.error('Expense insert failed:', error);
+      return;
+    }
+
+    await loadExpenses();
+    renderExpenses();
+    renderProfit();
+    e.target.reset();
+    document.getElementById('exp-date').value = isoDate(new Date());
+    showToast('Expense added', 'success');
+  }
+});
+
+// ================= RENDER EXPENSES =================
+function renderExpenses() {
+  const list = document.getElementById('expense-list');
+  const totalEl = document.getElementById('expense-total');
+  if (!list || !totalEl) return;
+
+  list.innerHTML = '';
+
+  let total = 0;
+
+  if (expenses.length === 0) {
+    totalEl.textContent = 'Total expenses: £0.00';
+    list.innerHTML = '<div class="empty-state"><span>🧾</span><p>No expenses yet.</p></div>';
+    return;
+  }
+
+  expenses.forEach(e => {
+    total += Number(e.amount);
+    const rowDate = e.expense_date || e.date;
+
+    const div = document.createElement('div');
+    div.className = 'customer-card';
+    div.innerHTML = `<div class="cust-info">
+      <div class="cust-name">£${Number(e.amount || 0).toFixed(2)} · ${escHtml(capFirst(e.category || 'misc'))}</div>
+      <div class="cust-meta-row">${rowDate ? formatDay(rowDate) : ''}${e.description ? ' · ' + escHtml(e.description) : ''}</div>
+    </div>
+    <div class="cust-actions">
+      <button class="btn btn-sm btn-danger" data-del-expense="${e.id}">Delete</button>
+    </div>`;
+    list.appendChild(div);
+  });
+
+  totalEl.textContent = `Total expenses: £${total.toFixed(2)}`;
+}
+
+// ================= MAP =================
+let map;
+let routeLayer = null;
+let markers    = [];
+
+function initMap() {
+  const el = document.getElementById('map');
+  if (!el || typeof L === 'undefined') return;
+  if (map) return; // already initialised
+
+  map = L.map('map').setView([54.6, -6.7], 9); // default: Northern Ireland
+
+  // CARTO CDN tiles – fast global CDN, dark-themed, no API key
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
+}
+
+// ================= ORS API KEY =================
+let ORS_KEY = '';
+const ORS_AUTO_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMxMTRlMDUyNDFiMzQ3YjdiZWY1YzUwNzc3NmMwZTcwIiwiaCI6Im11cm11cjY0In0=';
+
+function loadOrsKey() {
+  const stored = localStorage.getItem('cr-ors-key') || '';
+  ORS_KEY = stored || ORS_AUTO_KEY;
+  if (!stored && ORS_AUTO_KEY) {
+    localStorage.setItem('cr-ors-key', ORS_AUTO_KEY);
+  }
+  const el = document.getElementById('ors-key');
+  if (el && ORS_KEY) el.value = ORS_KEY;
+}
+
+document.addEventListener('click', e => {
+  if (e.target.id !== 'save-ors-key') return;
+  const val = document.getElementById('ors-key')?.value.trim();
+  if (!val) { showToast('Paste your ORS API key first', 'error'); return; }
+  ORS_KEY = val;
+  localStorage.setItem('cr-ors-key', val);
+  showToast('API key saved', 'success');
+});
+
+// ================= FUEL SETTINGS =================
+const FUEL_DEFAULTS = { price: 148, mpg: 35 }; // 148p/litre, 35mpg
+let fuelSettings = { ...FUEL_DEFAULTS };
+
+function loadFuelSettings() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('cr-fuel') || '{}');
+    fuelSettings = { ...FUEL_DEFAULTS, ...stored };
+  } catch { fuelSettings = { ...FUEL_DEFAULTS }; }
+  const fp = document.getElementById('fuel-price');
+  const vm = document.getElementById('vehicle-mpg');
+  if (fp) fp.value = fuelSettings.price;
+  if (vm) vm.value = fuelSettings.mpg;
+}
+
+function saveFuelSettings() {
+  fuelSettings.price = parseFloat(document.getElementById('fuel-price')?.value) || FUEL_DEFAULTS.price;
+  fuelSettings.mpg   = parseFloat(document.getElementById('vehicle-mpg')?.value) || FUEL_DEFAULTS.mpg;
+  localStorage.setItem('cr-fuel', JSON.stringify(fuelSettings));
+}
+
+function calcFuelCost(distKm) {
+  // km → miles → gallons used → litres used → £
+  const distMiles    = distKm * 0.621371;
+  const litresPerGal = 4.54609;
+  const litresUsed   = (distMiles / fuelSettings.mpg) * litresPerGal;
+  return (litresUsed * (fuelSettings.price / 100)).toFixed(2);
+}
+
+// ================= STOP MANAGEMENT =================
+function addStop() {
+  const list = document.getElementById('stop-list');
+  const idx  = list.querySelectorAll('.stop-row').length;
+  const div  = document.createElement('div');
+  div.className = 'stop-row';
+  div.innerHTML =
+    `<span class="stop-label">Stop ${idx}</span>` +
+    `<input class="stop-input" placeholder="e.g. BT${idx}1 2AA or address" />` +
+    `<button class="remove-stop btn-icon" title="Remove stop">\u2715</button>`;
+  list.appendChild(div);
+}
+
+function renumberStops() {
+  [...document.querySelectorAll('#stop-list .stop-row')].forEach((row, i) => {
+    row.querySelector('.stop-label').textContent = i === 0 ? 'Start' : `Stop ${i}`;
+  });
+}
+
+// Stop add/remove delegated handler (synchronous)
+document.addEventListener('click', e => {
+  if (e.target.id === 'add-stop') { addStop(); return; }
+  if (e.target.classList.contains('remove-stop')) {
+    e.target.closest('.stop-row').remove();
+    renumberStops();
+  }
+});
+
+// ================= DELETE EXPENSE =================
+document.addEventListener('click', async e => {
+  const id = e.target.dataset.delExpense;
+  if (!id) return;
+  if (!confirm('Delete this expense?')) return;
+  try {
+    const { error } = await sbClient.from(expenseTable).delete().eq('id', id);
+    if (error) throw error;
+    await loadExpenses();
+    renderExpenses();
+    renderProfit();
+    showToast('Expense deleted', 'success');
+  } catch (err) {
+    console.error('Delete expense error:', err);
+    showToast('Could not delete expense', 'error');
+  }
+});
+
+// ================= ROUTE =================
+document.addEventListener('click', async (e) => {
+  if (e.target.id !== 'calc-route') return;
+
+  const stopValues = [...document.querySelectorAll('.stop-input')]
+    .map(i => i.value.trim())
+    .filter(Boolean);
+  const infoEl = document.getElementById('route-info');
+
+  if (stopValues.length < 2) {
+    showToast('Enter at least a start and one destination', 'error');
+    return;
+  }
+
+  if (!ORS_KEY) {
+    showToast('Paste your free OpenRouteService API key above first', 'error');
+    document.getElementById('ors-key')?.focus();
+    return;
+  }
+
+  saveFuelSettings();
+  e.target.textContent = 'Calculating…';
+  e.target.disabled    = true;
+  infoEl.innerHTML     = '<span style="opacity:.6">Geocoding stops…</span>';
+
+  try {
+    // Geocode sequentially to respect Photon fair-use (fast enough in practice)
+    const stopCoords = [];
+    for (const place of stopValues) {
+      const c = await geocode(place);
+      if (!c) { showToast(`Could not find: ${place}`, 'error'); return; }
+      stopCoords.push(c);
+    }
+
+    infoEl.innerHTML = '<span style="opacity:.6">Calculating route…</span>';
+
+    // OpenRouteService – reliable, free tier 2000/day
+    const res = await fetch(
+      'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization':  ORS_KEY,
+          'Content-Type':   'application/json',
+          'Accept':         'application/json, application/geo+json',
+        },
+        body: JSON.stringify({ coordinates: stopCoords.map(c => [c.lng, c.lat]) }),
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.error?.message || `ORS error ${res.status}`;
+      if (res.status === 403) {
+        showToast('Invalid ORS API key – check and save it again', 'error');
+      } else {
+        showToast(`Route error: ${msg}`, 'error');
+      }
+      return;
+    }
+
+    const data = await res.json();
+    if (!data.features?.length) { showToast('No route found', 'error'); return; }
+
+    const feature  = data.features[0];
+    const summary  = feature.properties.summary;
+    const distKm   = (summary.distance / 1000).toFixed(1);
+    const distMi   = (summary.distance / 1000 * 0.621371).toFixed(1);
+    const durMins  = Math.round(summary.duration / 60);
+    const durStr   = durMins >= 60
+      ? `${Math.floor(durMins / 60)}h ${durMins % 60}m`
+      : `${durMins} min`;
+    const fuelCost = calcFuelCost(summary.distance / 1000);
+
+    infoEl.innerHTML =
+      `📍 <strong>${distKm} km</strong> (${distMi} mi) &nbsp;·&nbsp; ` +
+      `⏱ <strong>${durStr}</strong> &nbsp;·&nbsp; ` +
+      `⛽ Est. fuel: <strong>£${fuelCost}</strong>`;
+
+    const stopLabels = stopValues.map((v, i) =>
+      i === 0 ? `Start: ${v}` : `Stop ${i}: ${v}`
+    );
+    // ORS GeoJSON geometry uses [lng, lat] pairs
+    drawRoute(feature.geometry.coordinates, stopCoords, stopLabels);
+
+    // Auto-log fuel as expense
+    if (expenseStoreAvailable) {
+      const routeDesc = stopValues.join(' → ');
+      await sbClient.from(expenseTable).insert([{
+        [expenseDateColumn]: isoDate(new Date()),
+        amount:      parseFloat(fuelCost),
+        category:    'fuel',
+        description: `Trip: ${routeDesc} (${distKm} km)`,
+      }]);
+      await loadExpenses();
+      renderExpenses();
+      renderProfit();
+    }
+  } catch (err) {
+    console.error('Route error:', err);
+    showToast('Route calculation failed', 'error');
+  } finally {
+    e.target.textContent = 'Calculate Route';
+    e.target.disabled    = false;
+  }
+});
+
+// ================= HELPERS =================
+const UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+async function geocode(place) {
+  // UK postcode → postcodes.io (authoritative, no key)
+  if (UK_POSTCODE_RE.test(place.trim())) {
+    try {
+      const pc  = place.trim().replace(/\s+/g, '').toUpperCase();
+      const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(pc)}`);
+      const d   = await res.json();
+      if (d.status === 200 && d.result) {
+        return { lat: d.result.latitude, lng: d.result.longitude };
+      }
+    } catch { /* fall through */ }
+  }
+  // Photon (Komoot) – OSM-based, no key, UK-biased bbox, fast CDN
+  try {
+    const res = await fetch(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(place)}&limit=1&lang=en&bbox=-10.6,49.9,1.8,60.9`
+    );
+    const data = await res.json();
+    if (data.features?.length) {
+      const [lng, lat] = data.features[0].geometry.coordinates;
+      return { lat, lng };
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+function drawRoute(coords, stopCoords, stopLabels) {
+  if (!map) initMap();
+
+  // Remove previous route and markers
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  // Draw polyline (GeoJSON [lng,lat] → Leaflet [lat,lng])
+  const latlngs = coords.map(([lng, lat]) => [lat, lng]);
+  routeLayer = L.polyline(latlngs, { color: '#00d4e8', weight: 5, opacity: 0.85 }).addTo(map);
+
+  // Place numbered markers
+  stopCoords.forEach((c, i) => {
+    const label = stopLabels ? stopLabels[i] : (i === 0 ? 'Start' : `Stop ${i}`);
+    const m = L.marker([c.lat, c.lng]).addTo(map).bindPopup(label);
+    if (i === 0) m.openPopup();
+    markers.push(m);
+  });
+
+  map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+}
+
+// ================= PROFIT =================
+function renderProfit() {
+  const el = document.getElementById('weekly-profit');
+  if (!el) return;
+
+  const today = new Date();
+  const start = new Date(today);
+  const day = start.getDay();
+  const delta = day === 0 ? 6 : day - 1;
+  start.setDate(start.getDate() - delta);
+  start.setHours(0, 0, 0, 0);
+  const startIso = isoDate(start);
+
+  const weeklyJobs = jobs.filter(j => (j.scheduled_date || '') >= startIso);
+  const weeklyExpenses = expenses.filter(e => (e.expense_date || e.date || '') >= startIso);
+
+  const income = weeklyJobs.reduce((s, j) => s + Number(j.price || 0), 0);
+  const costs = weeklyExpenses.reduce((s, e) => s + Number(e.amount), 0);
+
+  el.textContent = (income - costs).toFixed(2);
+}
