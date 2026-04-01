@@ -111,8 +111,7 @@ async function bootstrap() {
   renderPayments();
   renderExpenses();
   renderProfit();
-  initMap();
-  startAutoRefresh();
+  startAutoRefresh(); // map is initialised lazily on first Routes tab visit
 }
 
 // ─────────────────────────────────────────
@@ -245,6 +244,11 @@ function setupTabs() {
       document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      // Fix Leaflet map tiles when switching to the routes tab
+      if (btn.dataset.tab === 'routes') {
+        if (!map) initMap();
+        else setTimeout(() => map.invalidateSize(), 50);
+      }
     });
   });
 }
