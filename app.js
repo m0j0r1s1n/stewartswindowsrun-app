@@ -1186,6 +1186,8 @@ function initMap() {
 let ORS_KEY = '';
 const ORS_AUTO_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMxMTRlMDUyNDFiMzQ3YjdiZWY1YzUwNzc3NmMwZTcwIiwiaCI6Im11cm11cjY0In0=';
 
+const ORS_KEY_PLACEHOLDER = '__saved__';
+
 function loadOrsKey() {
   const stored = localStorage.getItem('cr-ors-key') || '';
   ORS_KEY = stored || ORS_AUTO_KEY;
@@ -1193,15 +1195,27 @@ function loadOrsKey() {
     localStorage.setItem('cr-ors-key', ORS_AUTO_KEY);
   }
   const el = document.getElementById('ors-key');
-  if (el && ORS_KEY) el.value = ORS_KEY;
+  if (el) {
+    // Don't put the real key in the DOM – just show a masked placeholder
+    el.value = ORS_KEY ? ORS_KEY_PLACEHOLDER : '';
+    el.placeholder = ORS_KEY ? '●●●● Key saved – paste new key to replace ●●●●' : 'Paste your free ORS key – needed to calculate routes';
+  }
 }
 
 document.addEventListener('click', e => {
   if (e.target.id !== 'save-ors-key') return;
-  const val = document.getElementById('ors-key')?.value.trim();
-  if (!val) { showToast('Paste your ORS API key first', 'error'); return; }
+  const el  = document.getElementById('ors-key');
+  const val = el?.value.trim();
+  // Ignore if the user didn't type anything new (still showing the masked placeholder)
+  if (!val || val === ORS_KEY_PLACEHOLDER) {
+    showToast('Key already saved', '');
+    return;
+  }
   ORS_KEY = val;
   localStorage.setItem('cr-ors-key', val);
+  // Mask the input again immediately
+  el.value = ORS_KEY_PLACEHOLDER;
+  el.placeholder = '●●●● Key saved – paste new key to replace ●●●●';
   showToast('API key saved', 'success');
 });
 
