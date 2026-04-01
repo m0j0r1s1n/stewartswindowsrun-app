@@ -18,26 +18,27 @@
         <span class="logo-text">ClearRun</span>
       </div>
       <nav class="tab-nav">
-        <button class="tab-btn active" data-tab="today">Today's Run</button>
+        <button class="tab-btn active" data-tab="today">Today</button>
         <button class="tab-btn" data-tab="schedule">Schedule</button>
         <button class="tab-btn" data-tab="customers">Customers</button>
+        <button class="tab-btn" data-tab="payments">Payments</button>
       </nav>
     </div>
   </header>
 
-  <!-- MAIN CONTENT -->
   <main>
 
-    <!-- ===== TODAY'S RUN TAB ===== -->
+    <!-- ===== TODAY'S RUN ===== -->
     <section id="tab-today" class="tab-content active">
-
       <div class="run-header">
         <div>
           <h1 id="today-date-label">Today</h1>
-          <div class="run-stats" id="run-stats">
+          <div class="run-stats">
             <span class="stat"><span id="stat-total">0</span> jobs</span>
             <span class="stat-sep">·</span>
             <span class="stat"><span id="stat-done">0</span> done</span>
+            <span class="stat-sep">·</span>
+            <span class="stat paid-stat"><span id="stat-paid">0</span> paid</span>
             <span class="stat-sep">·</span>
             <span class="stat">£<span id="stat-value">0.00</span></span>
           </div>
@@ -47,11 +48,7 @@
           <button class="btn btn-ghost icon-btn" onclick="toggleRouteMode()" id="route-btn" title="Reorder route">⇅</button>
         </div>
       </div>
-
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="progress-bar"></div>
-      </div>
-
+      <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
       <div id="jobs-list" class="jobs-list">
         <div class="empty-state" id="jobs-empty">
           <span>🧹</span>
@@ -60,51 +57,80 @@
       </div>
     </section>
 
-    <!-- ===== SCHEDULE TAB ===== -->
+    <!-- ===== SCHEDULE ===== -->
     <section id="tab-schedule" class="tab-content">
       <div class="section-header">
         <h1>Schedule</h1>
         <div class="view-toggle">
-          <button class="view-btn active" data-view="week" onclick="setScheduleView('week', this)">Week</button>
-          <button class="view-btn" data-view="month" onclick="setScheduleView('month', this)">Month</button>
+          <button class="view-btn active" onclick="setScheduleView('week', this)">Week</button>
+          <button class="view-btn" onclick="setScheduleView('month', this)">Month</button>
         </div>
       </div>
-
       <div class="calendar-nav">
         <button class="btn btn-ghost" onclick="calNav(-1)">←</button>
         <span id="cal-label"></span>
         <button class="btn btn-ghost" onclick="calNav(1)">→</button>
       </div>
-
       <div id="schedule-grid" class="schedule-grid"></div>
     </section>
 
-    <!-- ===== CUSTOMERS TAB ===== -->
+    <!-- ===== CUSTOMERS ===== -->
     <section id="tab-customers" class="tab-content">
       <div class="section-header">
         <h1>Customers</h1>
-        <div style="display:flex;gap:0.5rem;">
-          <button class="btn btn-outline" onclick="openCustomerModal()">+ New Customer</button>
-          <button class="btn btn-ghost" onclick="refreshCustomersAndJobs()" title="Reload from Supabase">⟳ Refresh</button>
-        </div>
-      </div>
-      <div style="margin-bottom:1rem;display:flex;gap:0.5rem;">
-        <button class="btn btn-ghost" id="all-customers-tab" onclick="setCustomersTabAsync('all')">All Customers</button>
-        <button class="btn btn-ghost" id="paid-customers-tab" onclick="setCustomersTabAsync('paid')">Paid Customers</button>
-        <button class="btn btn-ghost" id="unpaid-customers-tab" onclick="setCustomersTabAsync('unpaid')">Unpaid Customers</button>
+        <button class="btn btn-outline" onclick="openCustomerModal()">+ New Customer</button>
       </div>
       <input type="text" class="search-input" placeholder="🔍  Search customers…" oninput="filterCustomers(this.value)" />
       <div id="customers-list" class="customers-list">
         <div class="empty-state" id="customers-empty">
-          <span>👤</span>
-          <p>No customers yet.<br>Add your first customer above.</p>
+          <span>👤</span><p>No customers yet.<br>Add your first customer above.</p>
         </div>
       </div>
     </section>
 
+    <!-- ===== PAYMENTS ===== -->
+    <section id="tab-payments" class="tab-content">
+      <div class="section-header">
+        <h1>Payments</h1>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="payment-summary">
+        <div class="summary-card owed">
+          <div class="summary-value" id="pay-total-owed">£0.00</div>
+          <div class="summary-label">Total Owed</div>
+        </div>
+        <div class="summary-card collected">
+          <div class="summary-value" id="pay-total-collected">£0.00</div>
+          <div class="summary-label">Total Collected</div>
+        </div>
+        <div class="summary-card jobs">
+          <div class="summary-value" id="pay-unpaid-count">0</div>
+          <div class="summary-label">Unpaid Jobs</div>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="pay-filters">
+        <div class="pay-filter-tabs">
+          <button class="pay-tab active" data-pay="unpaid" onclick="setPayView('unpaid', this)">Unpaid</button>
+          <button class="pay-tab" data-pay="paid"   onclick="setPayView('paid',   this)">Paid</button>
+          <button class="pay-tab" data-pay="all"    onclick="setPayView('all',    this)">All</button>
+        </div>
+        <div class="pay-date-filters">
+          <input type="date" id="pay-from" onchange="renderPayments()" title="From date" />
+          <span class="date-sep">→</span>
+          <input type="date" id="pay-to"   onchange="renderPayments()" title="To date" />
+          <button class="btn btn-ghost" onclick="clearPayDates()" title="Clear dates">✕</button>
+        </div>
+      </div>
+
+      <div id="payments-list"></div>
+    </section>
+
   </main>
 
-  <!-- ===== ADD / EDIT JOB MODAL ===== -->
+  <!-- ===== JOB MODAL ===== -->
   <div id="job-modal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
@@ -113,9 +139,7 @@
       </div>
       <div class="form-group">
         <label>Customer</label>
-        <select id="job-customer">
-          <option value="">— Select customer —</option>
-        </select>
+        <select id="job-customer"><option value="">— Select customer —</option></select>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -135,27 +159,33 @@
         <div class="form-group">
           <label>PVC Cleaning</label>
           <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="job-pvc" />
-              <span class="toggle-slider"></span>
-            </label>
+            <label class="toggle"><input type="checkbox" id="job-pvc" /><span class="toggle-slider"></span></label>
             <span class="toggle-label" id="pvc-label">No</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Recurring</label>
+          <select id="job-recurring">
+            <option value="none">One-off</option>
+            <option value="weekly">Weekly</option>
+            <option value="fortnightly">Fortnightly</option>
+            <option value="monthly">Monthly</option>
+            <option value="bimonthly">Every 2 months</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Payment Received</label>
+          <div class="toggle-wrap">
+            <label class="toggle toggle-green"><input type="checkbox" id="job-paid" /><span class="toggle-slider"></span></label>
+            <span class="toggle-label" id="paid-label">No</span>
           </div>
         </div>
       </div>
       <div class="form-group">
         <label>Notes</label>
         <textarea id="job-notes" rows="2" placeholder="Access codes, special instructions…"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Recurring</label>
-        <select id="job-recurring">
-          <option value="none">One-off</option>
-          <option value="weekly">Weekly</option>
-          <option value="fortnightly">Fortnightly</option>
-          <option value="monthly">Monthly</option>
-          <option value="bimonthly">Every 2 months</option>
-        </select>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeJobModal()">Cancel</button>
@@ -210,7 +240,7 @@
     </div>
   </div>
 
-  <!-- ===== CUSTOMER HISTORY MODAL ===== -->
+  <!-- ===== HISTORY MODAL ===== -->
   <div id="history-modal" class="modal-overlay">
     <div class="modal-box wide">
       <div class="modal-header">
@@ -221,7 +251,6 @@
     </div>
   </div>
 
-  <!-- TOAST -->
   <div id="toast" class="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
