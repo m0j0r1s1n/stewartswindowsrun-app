@@ -15,7 +15,7 @@
     <div class="header-inner">
       <div class="logo">
         <span class="logo-icon">🪟</span>
-        <span class="logo-text">ClearRun</span>
+        <span class="logo-text">Bert & Ernie Task Manager</span>
       </div>
       <nav class="tab-nav">
         <button class="tab-btn active" data-tab="today">Today</button>
@@ -23,6 +23,8 @@
         <button class="tab-btn" data-tab="customers">Customers</button>
         <button class="tab-btn" data-tab="payments">Payments</button>
       </nav>
+      <button class="sync-btn" id="sync-btn" onclick="manualSync()" title="Sync with Supabase">⟳</button>
+      <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀️</button>
     </div>
   </header>
 
@@ -49,12 +51,11 @@
         </div>
       </div>
       <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
-      <div id="jobs-list" class="jobs-list">
-        <div class="empty-state" id="jobs-empty">
-          <span>🧹</span>
-          <p>No jobs scheduled for today.<br>Add one or check the Schedule tab.</p>
-        </div>
+      <div class="empty-state" id="jobs-empty">
+        <span>🧹</span>
+        <p>No jobs scheduled for today.<br>Add one or check the Schedule tab.</p>
       </div>
+      <div id="jobs-list" class="jobs-list"></div>
     </section>
 
     <!-- ===== SCHEDULE ===== -->
@@ -81,11 +82,10 @@
         <button class="btn btn-outline" onclick="openCustomerModal()">+ New Customer</button>
       </div>
       <input type="text" class="search-input" placeholder="🔍  Search customers…" oninput="filterCustomers(this.value)" />
-      <div id="customers-list" class="customers-list">
-        <div class="empty-state" id="customers-empty">
-          <span>👤</span><p>No customers yet.<br>Add your first customer above.</p>
-        </div>
+      <div class="empty-state" id="customers-empty">
+        <span>👤</span><p>No customers yet.<br>Add your first customer above.</p>
       </div>
+      <div id="customers-list" class="customers-list"></div>
     </section>
 
     <!-- ===== PAYMENTS ===== -->

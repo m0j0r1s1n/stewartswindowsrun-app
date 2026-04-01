@@ -18,6 +18,7 @@ let payView        = 'unpaid'; // 'unpaid' | 'paid' | 'all'
 // ─────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  setupTheme();
   setupTabs();
   setupToggleLabels();
   setTodayLabel();
@@ -34,6 +35,68 @@ async function bootstrap() {
   renderSchedule();
   renderCustomers();
   renderPayments();
+  startAutoRefresh();
+}
+
+// ─────────────────────────────────────────
+// AUTO-REFRESH
+// ─────────────────────────────────────────
+const AUTO_REFRESH_INTERVAL = 15_000; // 15 seconds
+let autoRefreshTimer = null;
+
+function startAutoRefresh() {
+  autoRefreshTimer = setInterval(silentRefresh, AUTO_REFRESH_INTERVAL);
+  // Also refresh whenever the browser tab becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') silentRefresh();
+  });
+}
+
+async function silentRefresh() {
+  await loadCustomers();
+  await loadJobs();
+  renderAll();
+}
+
+// ─────────────────────────────────────────
+// THEME
+// ─────────────────────────────────────────
+function setupTheme() {
+  const saved = localStorage.getItem('cr-theme');
+  // Default to dark; respect OS preference only if no saved choice
+  const preferLight = !saved && window.matchMedia('(prefers-color-scheme: light)').matches;
+  applyTheme(saved === 'light' || preferLight ? 'light' : 'dark');
+}
+
+function applyTheme(theme) {
+  document.body.classList.toggle('light', theme === 'light');
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const next = document.body.classList.contains('light') ? 'dark' : 'light';
+  localStorage.setItem('cr-theme', next);
+  applyTheme(next);
+}
+
+// ─────────────────────────────────────────
+// MANUAL SYNC
+// ─────────────────────────────────────────
+async function manualSync() {
+  const btn = document.getElementById('sync-btn');
+  if (btn) btn.classList.add('spinning');
+  try {
+    await loadCustomers();
+    await loadJobs();
+    renderAll();
+    showToast('Synced ✓', 'success');
+  } catch (err) {
+    console.error('Sync error:', err);
+    showToast('Sync failed: ' + (err?.message || err), 'error');
+  } finally {
+    if (btn) btn.classList.remove('spinning');
+  }
 }
 
 // ─────────────────────────────────────────
@@ -130,7 +193,6 @@ function renderToday() {
   list.innerHTML = '';
 
   if (todayJobs.length === 0) {
-    list.appendChild(empty);
     empty.style.display = '';
     updateStats([], 0, 0, 0);
     return;
@@ -393,7 +455,6 @@ function renderCustomers(filter = '') {
 
   if (customers.length === 0) {
     empty.style.display = '';
-    list.appendChild(empty);
     return;
   }
 
@@ -872,4 +933,5 @@ Object.assign(window, {
   toggleComplete, togglePaid, markAllPaid,
   toggleRouteMode, setScheduleView, calNav,
   filterCustomers, setPayView, clearPayDates,
+  toggleTheme, manualSync,
 });
