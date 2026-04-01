@@ -901,7 +901,7 @@ function viewHistory(custId) {
 
   const custJobs   = jobs.filter(j => j.customer_id === custId)
     .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
-  const paidValue  = custJobs.filter(j => j.paid).reduce((s, j) => s + Number(j.price || 0), 0);
+  const paidValue  = custJobs.filter(j => j.completed && j.paid).reduce((s, j) => s + Number(j.price || 0), 0);
   const owedValue  = custJobs.filter(j => j.completed && !j.paid).reduce((s, j) => s + Number(j.price || 0), 0);
   const addr       = [cust.address, cust.town, cust.postcode].filter(Boolean).join(', ');
 
