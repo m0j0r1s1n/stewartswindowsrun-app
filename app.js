@@ -14,18 +14,84 @@ let routeMode      = false;
 let payView        = 'unpaid'; // 'unpaid' | 'paid' | 'all'
 
 // ─────────────────────────────────────────
-// STARTUP
+// STARTUP & AUTH
 // ─────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Check for existing session first
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (session) {
+    showApp();
+  } else {
+    showLogin();
+  }
+
+  // Listen for auth state changes (login / logout)
+  sbClient.auth.onAuthStateChange((_event, session) => {
+    if (session) showApp();
+    else showLogin();
+  });
+});
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-shell').style.display = 'none';
+  // Clear any sensitive fields
+  const e = document.getElementById('login-email');
+  const p = document.getElementById('login-password');
+  if (p) p.value = '';
+  if (e) e.focus();
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-shell').style.display = 'block';
   setupTheme();
   setupTabs();
   setupToggleLabels();
   setTodayLabel();
   setupOverlayClose();
   setDefaultPayDates();
-  await bootstrap();
-});
+  bootstrap();
+}
+
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+  const loadEl   = document.getElementById('login-loading');
+  const btn      = document.getElementById('login-btn');
+
+  if (!email || !password) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  loadEl.style.display = 'block';
+
+  const { error } = await sbClient.auth.signInWithPassword({ email, password });
+
+  btn.disabled = false;
+  loadEl.style.display = 'none';
+
+  if (error) {
+    errEl.textContent = error.message === 'Invalid login credentials'
+      ? 'Incorrect email or password.'
+      : error.message;
+    errEl.style.display = 'block';
+  }
+  // On success, onAuthStateChange fires showApp() automatically
+}
+
+async function doLogout() {
+  await sbClient.auth.signOut();
+  // onAuthStateChange fires showLogin() automatically
+  showToast('Signed out', '');
+}
 
 async function bootstrap() {
   await ensureTables();
@@ -926,6 +992,7 @@ function showToast(msg, type = '') {
 // EXPORTS
 // ─────────────────────────────────────────
 Object.assign(window, {
+  doLogin, doLogout,
   openAddJobModal, openCustomerModal, viewHistory,
   closeJobModal, closeCustomerModal, closeHistoryModal,
   saveJob, saveCustomer, deleteJob, deleteCustomer,
