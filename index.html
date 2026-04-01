@@ -83,7 +83,15 @@
     <section id="tab-customers" class="tab-content">
       <div class="section-header">
         <h1>Customers</h1>
-        <button class="btn btn-outline" onclick="openCustomerModal()">+ New Customer</button>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="btn btn-outline" onclick="openCustomerModal()">+ New Customer</button>
+          <button class="btn btn-ghost" onclick="refreshCustomersAndJobs()" title="Reload from Supabase">⟳ Refresh</button>
+        </div>
+      </div>
+      <div style="margin-bottom:1rem;display:flex;gap:0.5rem;">
+        <button class="btn btn-ghost" id="all-customers-tab" onclick="setCustomersTabAsync('all')">All Customers</button>
+        <button class="btn btn-ghost" id="paid-customers-tab" onclick="setCustomersTabAsync('paid')">Paid Customers</button>
+        <button class="btn btn-ghost" id="unpaid-customers-tab" onclick="setCustomersTabAsync('unpaid')">Unpaid Customers</button>
       </div>
       <input type="text" class="search-input" placeholder="🔍  Search customers…" oninput="filterCustomers(this.value)" />
       <div id="customers-list" class="customers-list">

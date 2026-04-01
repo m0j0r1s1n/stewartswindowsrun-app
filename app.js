@@ -1,3 +1,11 @@
+// Manual refresh for customers and jobs
+async function refreshCustomersAndJobs() {
+  document.getElementById('customers-list').innerHTML = '<div class="empty-state">Refreshing…</div>';
+  await loadCustomers();
+  await loadJobs();
+  renderCustomers();
+  showToast('Data refreshed', 'success');
+}
 /* =========================================
    CLEARRUN – APP.JS
    Supabase-backed window cleaning run manager
@@ -382,16 +390,39 @@ function renderSchedule() {
 }
 
 // ── Customers ─────────────────────────────────────────────
+let customersTab = 'all'; // 'all', 'paid', 'unpaid'
+
+
+
 function renderCustomers(filter = '') {
   const list = document.getElementById('customers-list');
   const empty = document.getElementById('customers-empty');
-  const filtered = filter
+  let filtered = filter
     ? customers.filter(c =>
         c.name.toLowerCase().includes(filter.toLowerCase()) ||
         (c.address || '').toLowerCase().includes(filter.toLowerCase()) ||
         (c.town || '').toLowerCase().includes(filter.toLowerCase())
       )
     : customers;
+
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    // If jobs are not loaded, always show all customers
+    filtered = filtered;
+  } else if (customersTab === 'paid') {
+    filtered = filtered.filter(cust => jobs.some(j => j.customer_id === cust.id && j.paid));
+  } else if (customersTab === 'unpaid') {
+    filtered = filtered.filter(cust => {
+      const custJobs = jobs.filter(j => j.customer_id === cust.id);
+      // Show if no jobs at all, or all jobs are unpaid
+      return custJobs.length === 0 || !custJobs.some(j => j.paid);
+    });
+  }
+
+  // Update tab active state
+  ['all','paid','unpaid'].forEach(tab => {
+    const btn = document.getElementById(tab+'-customers-tab');
+    if (btn) btn.classList.toggle('active', customersTab === tab);
+  });
 
   list.innerHTML = '';
   if (filtered.length === 0) {
@@ -406,12 +437,13 @@ function renderCustomers(filter = '') {
     const addr = [cust.address, cust.town, cust.postcode].filter(Boolean).join(', ');
     const initials = cust.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+    const hasPaid = custJobs.some(j => j.paid);
     const card = document.createElement('div');
     card.className = 'customer-card';
     card.innerHTML = `
       <div class="cust-avatar">${initials}</div>
       <div class="cust-info">
-        <div class="cust-name">${escHtml(cust.name)}</div>
+        <div class="cust-name">${escHtml(cust.name)}${hasPaid ? ' <span title="Has paid jobs" style="color:var(--green);font-size:1.1em;vertical-align:middle;">💷</span>' : ''}</div>
         ${addr ? `<div class="cust-address">📍 ${escHtml(addr)}</div>` : ''}
         ${cust.phone ? `<div class="cust-phone">📞 ${escHtml(cust.phone)}</div>` : ''}
       </div>
@@ -424,6 +456,21 @@ function renderCustomers(filter = '') {
     `;
     list.appendChild(card);
   });
+}
+
+// Async tab switcher for UI buttons
+function setCustomersTabAsync(tab) {
+  const list = document.getElementById('customers-list');
+  if (list) list.innerHTML = '<div class="empty-state">Loading…</div>';
+  setCustomersTab(tab);
+}
+
+// Set which customers tab is active, reload data, and re-render
+async function setCustomersTab(tab) {
+  customersTab = tab;
+  await loadCustomers();
+  await loadJobs();
+  renderCustomers();
 }
 
 function filterCustomers(val) {
@@ -675,7 +722,8 @@ function viewHistory(custId) {
           <span style="color:${job.completed ? 'var(--green)' : 'var(--text-secondary)'}">${job.completed ? '✓' : '○'}</span>
           <span style="flex:1;padding:0 0.75rem">${dateStr}${job.scheduled_time ? ' · ' + job.scheduled_time.slice(0,5) : ''}</span>
           ${job.pvc_cleaning ? '<span class="job-tag pvc" style="font-size:0.65rem;margin-right:0.5rem">PVC</span>' : ''}
-          <span style="color:var(--cyan);font-family:\'Barlow Condensed\',sans-serif;font-weight:700">£${Number(job.price||0).toFixed(2)}</span>
+          <span style="color:var(--cyan);font-family:'Barlow Condensed',sans-serif;font-weight:700">£${Number(job.price||0).toFixed(2)}</span>
+          ${job.paid ? '<span title="Paid" style="margin-left:0.5rem;color:var(--green);font-size:1.1em">💷</span>' : ''}
         </div>
       `;
     });
@@ -762,3 +810,18 @@ window.editCustomer = editCustomer;
 window.deleteCustomer = deleteCustomer;
 window.viewHistory = viewHistory;
 window.toggleComplete = toggleComplete;
+
+async function togglePaid(id, e) {
+  e.stopPropagation();
+  const job = jobs.find(j => j.id === id);
+  if (!job) return;
+  const newVal = !job.paid;
+  // Update the database (column already exists, so this will work!)
+  const { error } = await db.from('cr_jobs').update({ paid: newVal }).eq('id', id);
+  if (error) return showToast('Update failed', 'error');
+  
+  job.paid = newVal;
+  renderToday(); // Refresh the screen
+  showToast(newVal ? 'Paid £' : 'Unpaid', 'success');
+}
+window.togglePaid = togglePaid;
